@@ -1,32 +1,20 @@
-from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
-from sklearn.linear_model import LinearRegression, Ridge
-from sklearn.metrics import mean_squared_error, r2_score
+from timeit import default_timer as timer
+
+from sklearn.metrics import (
+    mean_squared_error,
+    r2_score,
+    mean_absolute_error,
+    mean_absolute_percentage_error,
+)
 from sklearn.model_selection import train_test_split, GridSearchCV
-import matplotlib.pyplot as plt
-import numpy as np
-from sklearn.neighbors import KNeighborsRegressor
 
+import util.models as models
+from util.plots import (
+    plot_predictions,
+    aggregate_importance,
+    plot_aggregated_importance,
+)
 from util.preprocess import preprocess_data
-
-
-def plot_predictions(y_true, y_pred, model_name):
-    plt.figure(figsize=(10, 6))
-    plt.scatter(y_true, y_pred, alpha=0.5)
-    plt.plot(
-        np.linspace(min(y_true), max(y_true), 100),
-        np.linspace(min(y_true), max(y_true), 100),
-        color="red",
-        linestyle="--",
-    )
-
-    plt.title(f"{model_name} Predictions vs Actual")
-    plt.xlabel("Actual Price")
-    plt.ylabel("Predicted Price")
-    plt.grid(True)
-    plt.tight_layout()
-
-    plt.savefig(f"../plots/{model_name.replace(' ', '_')}_predictions_vs_actual.png")
-    plt.show()
 
 
 def train_models():
@@ -45,48 +33,11 @@ def train_models():
     X_train[continuous_features] = scaler.transform(X_train[continuous_features])
     X_test[continuous_features] = scaler.transform(X_test[continuous_features])
 
-    models = {
-        "Linear Regression": LinearRegression(),
-        "Ridge Regression": Ridge(),
-        "Random Forest": RandomForestRegressor(),
-        "kNN": KNeighborsRegressor(),
-        "Gradient Boosting": GradientBoostingRegressor(),
-    }
-
-    # Hyperparameter grid for Ridge Regression
-    ridge_params = {"alpha": [0.1, 0.5, 1.0, 5.0, 10.0]}
-
-    # Hyperparameter grid for Random Forest
-    rf_params = {
-        "n_estimators": [10, 50, 100],
-        "max_depth": [None, 10, 20],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf": [1, 2, 4],
-    }
-
-    # Hyperparameter grid for kNN
-    knn_params = {"n_neighbors": [3, 5, 7], "weights": ["uniform", "distance"]}
-
-    # Hyperparameter grid for Gradient Boosting
-    gb_params = {
-        "n_estimators": [10, 50, 100],
-        "learning_rate": [0.01, 0.05, 0.1],
-        "subsample": [0.8, 0.9, 1.0],
-        "max_depth": [3, 5, 8],
-        "min_samples_split": [2, 5, 10],
-        "min_samples_leaf": [1, 2, 4],
-    }
-
-    # Search spaces
-    search_spaces = {
-        "Linear Regression": {},
-        "Ridge Regression": ridge_params,
-        "Random Forest": rf_params,
-        "kNN": knn_params,
-        "Gradient Boosting": gb_params,
-    }
-
-    for name, model in models.items():
+    models_dict = models.get_models()
+    search_spaces = models.get_search_spaces()
+    total_time = 0
+    for name, model in models_dict.items():
+        start_time_model = timer()
         # Check if there are hyperparameters to tune
         if search_spaces[name]:
             # Hyperparameter tuning using GridSearchCV
@@ -101,11 +52,26 @@ def train_models():
 
         predictions = best_model.predict(X_test)
 
+        end_time_model = timer()
+        total_model_time = end_time_model - start_time_model
+        total_time += total_model_time
+
         rmse = mean_squared_error(y_test, predictions, squared=False)
+        mae = mean_absolute_error(y_test, predictions)
+        mape = mean_absolute_percentage_error(y_test, predictions)
         r2 = r2_score(y_test, predictions)
 
-        print(f"{name} RMSE: {rmse} R2 Score: {r2}")
+        print(
+            f"{name} RMSE: {rmse:.3f}, MAE: {mae:.3f}, MAPE: {mape:.2f} %, R2 Score: {r2:.3f},"
+            f" Time elapsed: {total_model_time:.3f}s"
+        )
         plot_predictions(y_test, predictions, name)
+        if name == "Random Forest":
+            importance = best_model.feature_importances_
+            aggregated = aggregate_importance(importance, X_train.columns)
+            plot_aggregated_importance(aggregated)
+
+    print(f"Total time elapsed: {total_time:.3f}s")
 
 
 if __name__ == "__main__":
